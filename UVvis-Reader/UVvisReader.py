@@ -10,26 +10,29 @@ import numpy as np
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 
-# class dataArray(list):
-#     
-#     def __init__(self, filenumber):
-#         super(dataArray, self).__init__()
-#         self.filenumber = filenumber
-#     
-#     def boolZeroMeasure(self):
-#         mysum = 0
-#         for i in self:
-#             mysum +=  i
-#         meanval = (len(self)>0)*mysum/float(len(self))
-#         return meanval > 10
-#     
-#     def deleteEntries(self, minpos, maxpos):
-#         iterations = (len(self)-1) - maxpos
-#         for i in range(iterations):
-#             self.remove(-1)
-#         for i in range(minpos):
-#             self.remove(0)
-#             
+class dataArray(list):
+     
+    def __init__(self, filenumber):
+        super(dataArray, self).__init__()
+        self.filenumber = filenumber
+     
+    def boolZeroMeasure(self):
+        mysum = 0
+        for i in self:
+            mysum +=  i
+        meanval = (len(self)>0)*mysum/float(len(self))
+        return meanval < 10.0
+     
+    def deleteEntries(self, minpos, maxpos):
+        iterations = (len(self)-1) - maxpos
+        for i in range(iterations):
+            self.remove(-1)
+        for i in range(minpos):
+            self.remove(0)
+            
+    def getNumber(self):
+        return self.filenumber
+             
 
 
 """ Smoothing"""
@@ -66,11 +69,14 @@ def smooth_files(dataSet, wavelength, smoo):
 """ Extraction """
 ##################    
 
-# def extractFiles():
-#     waveLength = dataArray()
-#     dataBib = {'TR': dataArray()}
-#     
-#     
+def extractFiles(name):
+    waveLength = dataArray()
+    dataBib = {'TR': dataArray()}
+    
+    
+    
+    
+     
     
 
 
@@ -88,12 +94,12 @@ def convertFiles(name, start, stop, path, header=88, lineN=2137, Selected = 1):
     myArray = []
     waveLength = []
     filenumber = []
+    selectCounter = 0
+    startselection = False
     for i in range(int(start),int(stop)+1):
-        #if (i/float(stop-start)
-        if i % Selected != 0:
+        if (selectCounter % Selected != 0) and (startselection == True):
             continue
-        filenumber.append(i)
-        partArray = []
+        partArray = dataArray(i)
         prozero = (i==0)*('0')+(i<10)*('0')+(i<100)*('0')+(i<1000)*('0')
         myfile = open(path+'/'+name+prozero+str(i)+".txt",'r')
         newfile = open(path+'/IGOR/'+name+"_"+prozero+str(i)+"_NEW.txt", 'w')
@@ -118,10 +124,16 @@ def convertFiles(name, start, stop, path, header=88, lineN=2137, Selected = 1):
                     if len(waveLength)==0 or (float(newline[1]) > waveLength[-1]):
                         waveLength.append(float(newline[1]))
                     partArray.append(float(newline[8]))
-                
+          
             j+=1
         
-        myArray.append(partArray)
+        if partArray.boolZeroMeasure() == False:
+            filenumber.append(i)
+            myArray.append(partArray)
+            startselection = True
+            selectCounter+=1
+        else:
+            startselection = False
          
         newfile.close()
         myfile.close()
@@ -194,9 +206,66 @@ def plot3d(dataSet, waveLength, Name):
     plt.show()
 
 
+""" Command Line """
+
+def convertCommand(inputcommand):
+    if type(inputcommand) != str:
+        return []
+    return inputcommand.split(' ')
+
+def handleCommands(inputArray, dataSet, wavelength, filenumber, dataSetsmooth, ):
+    if inputArray == 0:
+        return False
+    elif inputArray[0] == 'help':
+        helpCommand()
+    elif inputArray[0] == 'exit':
+        return True
+    elif inputArray[0] == 'plot':
+        if inputArray[1] == '2d':
+            plot2d(dataSetsmooth, name)
+        elif inputArray[1] == '3d':
+            plot3d(dataSetsmooth, wavelengthsmooth, name)
+        elif inputArray[1] == 'n':
+            multipleLines2dPlot(dataSetsmooth, wavelengthsmooth, range(len(dataSet)), name, filenumber)
+        else:
+            print "No valid plot object. [2d/3d/n]"
+    elif inputArray[0] == 'cutoff':
+        if inputArray[1] == 'wavelength':
+            cutoffWavelengthCommand(inputArray[2])
+        elif inputArray[1] == 'files':
+            cutoffFilenumbersCommand(inputArray[2])
+        else:
+            print "No valid cutoff object. [files/wavelength]"
+    elif inputArray[0] == 'selector':
+        selectorCommand(inputArray[1])
+    
+    
+    else:
+        print "No valid command. Try help for list of commands" 
+            
+                
 
 
+def helpCommand():
+    print "UVvisReader commands"
+    print "help -- this list"
+    print "exit -- exit UVvisReader"
+    print "plot [2d/3d/n] -- plot different figures. Example: UVvisReader>>plot 3d"
+    print "cutoff [wavelength/files] [True/False/ [start,stop]]"
+    
+def cutoffWavelengthCommand(mydata):
+    pass
 
+def cutoffFilenumbersCommand(mydata):
+    pass
+
+def selectorCommand(selectvalue):
+    pass
+    
+    
+    
+    
+    
 ##################################
 #########     CODE     ###########
 ##################################  
@@ -213,20 +282,31 @@ if not os.path.exists(path+'/IGOR/'):
 
 dataSet, wavelength, filenumber = convertFiles(name, start, stop, path, Selected = selected)
 
-dataSetneo, wavelengthneo = smooth_files(dataSet, wavelength, smoo)
+dataSetsmooth, wavelengthsmooth = smooth_files(dataSet, wavelength, smoo)
 
-origin_safefile(dataSetneo, wavelengthneo, filenumber, path)
+origin_safefile(dataSetsmooth, wavelengthsmooth, filenumber, path)
 
-plotBool = raw_input("2d or 3d Colorplot or normal plot? [2d/3d/n]: ")
-if plotBool == "2d":
-    plot2d(dataSetneo, name)
-elif plotBool == "3d":
-    plot3d(dataSetneo, wavelengthneo, name)
-elif plotBool == "n":
-    pos = range(len(dataSet))
-    multipleLines2dPlot(dataSetneo, wavelengthneo, pos, name, filenumber)
-else:
-    pass
+myexit = False
+while myexit != True:
+    commandLine = raw_input('UVvisReader >>')
+    myexit = handleCommands(convertCommand(commandLine),
+                            dataSet = dataSet, wavelength = wavelength, filenumber = filenumber,
+                            dataSetsmooth = dataSetsmooth, wavelengthsmooth=wavelengthsmooth,
+                            name=name, start=start, stop=stop, smoo=smoo, selected=selected
+                            )
+    
+    
+    
+# plotBool = raw_input("2d or 3d Colorplot or normal plot? [2d/3d/n]: ")
+# if plotBool == "2d":
+#     plot2d(dataSetsmooth, name)
+# elif plotBool == "3d":
+#     plot3d(dataSetsmooth, wavelengthsmooth, name)
+# elif plotBool == "n":
+#     pos = range(len(dataSet))
+#     multipleLines2dPlot(dataSetsmooth, wavelengthneo, pos, name, filenumber)
+# else:
+#     pass
 # visualisation(np.clip(dataSetneo, 0, 200), name)
 
 
