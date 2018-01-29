@@ -28,6 +28,7 @@ class dataArray(list):
     def __init__(self, liste=[]):
         super(dataArray, self).__init__(liste)
         self.filenumber = None
+        self.fileName = None
     def boolZeroMeasure(self):
         mysum = 0
         for i in self:
@@ -47,6 +48,12 @@ class dataArray(list):
     
     def setNumber(self, nr):
         self.filenumber = nr
+        
+    def setFileName(self, name):
+        self.fileName = name
+    
+    def getFileName(self):
+        return self.fileName
              
 
 
@@ -173,7 +180,7 @@ def smooth_files(dataSet, wavelength, smoo):
         
     return dataSetsmooth, wavelengthsmooth
 
-def prepareDataSet(dataSet, wavelength, dataSetProperties):
+def prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties):
     """
     Cut off files, wavelength or skip files.
     This function provides the choosen dataSet for plotting and saving
@@ -182,6 +189,7 @@ def prepareDataSet(dataSet, wavelength, dataSetProperties):
     @param dataSetProperties: dictionary with dataSet-changing values
     @return: prepared dataSet and wavelength with values from dataSetProperties
     """
+    nameFunc = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
 
     wlMin = dataSetProperties['wl'][0]
     wlMax = dataSetProperties['wl'][1]
@@ -228,6 +236,7 @@ def prepareDataSet(dataSet, wavelength, dataSetProperties):
     for dArray in cutFileArray:
         newArray = dataArray(dArray[wlMinIndex:wlMaxIndex])
         newArray.setNumber(dArray.getNumber())
+        newArray.setFileName( str(nameFunc(dArray)) + ' ' + fileNameProperties['unit'] )
         preparedArray.append(newArray)
         
     preparedwavelength = wavelength[wlMinIndex:wlMaxIndex]
@@ -255,10 +264,10 @@ def origin_safefile(dataSet, wavelength, dataSetProperties, path):
         os.mkdir(path+'/Origin/')
     originfile = open(path+'/Origin/Spectra.txt', 'w')
     text = 'wavelength'
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
                 
     for dArray in safedataSet:
-        text += ' '+str(dArray.getNumber())
+        text += ' '+dArray.getFileName()
     text += '\n'
     for j in range(len(safewavelength)):
         text += str(safewavelength[j])
@@ -283,7 +292,7 @@ def Igor_safefile(dataSet, wavelength, dataSetProperties, name, path):
     if not os.path.exists(path+'/IGOR/'):
         os.mkdir(path+'/IGOR/')
         
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
         
     pzf = int(np.ceil(np.log10(dataSetProperties['file'][1])))+1
     for dArray in safedataSet:
@@ -309,7 +318,7 @@ def Igor_safefile(dataSet, wavelength, dataSetProperties, name, path):
 #####################
 def plot2d(dataSet, wavelength, plotProperties, dataSetProperties):
     
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
     
     fig, ax = plt.subplots()
 
@@ -325,9 +334,9 @@ def plot2d(dataSet, wavelength, plotProperties, dataSetProperties):
     plt.show()
     
 def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties):
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
     for dArray in safedataSet:
-        plt.plot(safewavelength, dArray, color=np.random.rand(3,1), label=dArray.getNumber())
+        plt.plot(safewavelength, dArray, color=np.random.rand(3,1), label=dArray.getFileName())
     plt.xlabel(plotProperties['n_axinfo'][0])
     plt.ylabel(plotProperties['n_axinfo'][1])
     plt.title(plotProperties['name'])
@@ -335,7 +344,7 @@ def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties):
     plt.show()
 
 def plot3d(dataSet, wavelength, plotProperties, dataSetProperties):
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
     X = []
     for dArray in safedataSet:
         X.append(dArray.getNumber())
@@ -370,7 +379,8 @@ def getValuesFromStringArray(strArray):
     return elements
 
 def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
-                   dataSetProperties_raw, dataSetProperties, plotProperties, path):
+                   dataSetProperties_raw, dataSetProperties,
+                   plotProperties, fileNameProperties, path):
     
     
     if inputArray == ['']:
@@ -466,7 +476,11 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
         axisCommand(inputArray, plotProperties)
         
         
-        
+    elif inputArray[0] == 'filename':
+        if len(inputArray) < 3:
+            print "ERROR: wrong syntax. Try 'filename [factor/offset/unit] VALUE"
+            return False
+        fileNameCommand(inputArray, dataSet, fileNameProperties)
         
         
     elif inputArray[0] == 'selector':
@@ -496,8 +510,22 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
 ######################################################
 
 def helpCommand():
-    print '########################################'
+    print '################################################'
     print "UVvisReader commands"
+    print ' '
+    print "axis [2d/3d/n] [x/y/z] VALUE"
+    print "** Change axis description **"
+    print ' '
+    print "cutoff [wavelength/files] (start,stop)"
+    print "** Set the limits for wavelength or filenumber."
+    print "   WARNING: No spaces in (start,stop) allowed. **"
+    print ' '
+    print "exit"
+    print "** close UVvisReader **"
+    print ' '
+    print "filename [factor/offset/unit] VALUE"
+    print "** Chance the filename for 'plot n' and 'safe origin'"
+    print "   function: (factor*FILENUMBER + offset) unit **"
     print ' '
     print "help"
     print "** this list **"
@@ -506,18 +534,8 @@ def helpCommand():
     print "** loads files with same filename, beginning with 1,"
     print "   ending with last found filenumber **"
     print ' '
-    print "exit"
-    print "** close UVvisReader **"
-    print ' '
     print "plot [2d/3d/n]"
     print "** plot different figures. Example: UVvisReader>>plot 3d **"
-    print ' '
-    print "cutoff [wavelength/files] (start,stop)"
-    print "** Set the limits for wavelength or filenumber."
-    print "   WARNING: No spaces in (start,stop) allowed. **"
-    print ' '
-    print "axis [2d/3d/n] [x/y/z] VALUE"
-    print "** Change axis description **"
     print ' '
     print "safe [origin/igor]"
     print "** safe modified dataSet as origin/igor importable. **"
@@ -525,15 +543,15 @@ def helpCommand():
     print 'selector VALUE'
     print "** Set how many files shall be skipped **"
     print ' '
-    print "smooth VALUE"
-    print "** Set smoothing value **"
-    print ' '
     print "show [dataSet/dataSet_raw/wavelength/wavelength_raw] [NONE/len)"
     print "** DEBUG function: Show the actual values of intern variables **"
     print ' '
     print "show [dataSetproperties/dataSetProperties_raw/plotProperties]"
     print "** DEBUG function: Show the actual values of intern variables **"
-    print '########################################'
+    print ' '
+    print "smooth VALUE"
+    print "** Set smoothing value **"
+    print '################################################'
     print ' '
     
 def cutoffWavelengthCommand(min_max, dataSet_raw, dataSet, dataSetProperties_raw, dataSetProperties):
@@ -646,7 +664,21 @@ def showCommands(inputArray):
         print ' '
     
     
-    
+def fileNameCommand(inputArray, dataSet, fileNameProperties):
+    if inputArray[1] == 'unit':
+        unitstr = inputArray[2]
+        if len(inputArray) > 3:
+            for word in inputArray[3:]:
+                unitstr += ' '+word
+        fileNameProperties['unit'] = unitstr
+    elif inputArray[1] in ['factor', 'offset']:
+        try:
+            valuefloat = float(inputArray[2])
+            fileNameProperties[inputArray[1]] = valuefloat
+        except:
+            print 'ERROR: VALUE not float.'
+            return False
+            
     
     
     
@@ -667,6 +699,7 @@ plotProperties = {'name':'',
                   '2d_axinfo': ['file number', 'wavelength (nm)', 'Transmission/Reflection (a.u.)'],
                   '3d_axinfo': ['file number', 'wavelength (nm)', 'Transmission/Reflection (a.u.)']
                   }
+fileNameProperties = {'factor':1, 'offset':0, 'unit': ''}
 
 print "################ UVvisReader ###################"
 print "# by Jannik Woehnert and Matthias Schwartzkopf #"
@@ -680,6 +713,7 @@ while myexit != True:
                             dataSet_raw = dataSet_raw, wavelength_raw = wavelength_raw,
                             dataSet = dataSet, wavelength=wavelength,
                             dataSetProperties = dataSetProperties, dataSetProperties_raw = dataSetProperties_raw,
-                            plotProperties = plotProperties, path = path
+                            plotProperties = plotProperties, fileNameProperties =fileNameProperties,
+                            path = path
                             )
 
