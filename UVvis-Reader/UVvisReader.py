@@ -99,7 +99,7 @@ def extractFileName(fileNameString):
 
 
 
-def extractFiles(fileNameString, path, header=88, Cwl = 1, Ctr = 8):
+def extractFiles(fileNameString, filepath, header=88, Cwl = 1, Ctr = 8):
     waveLength = []
     dataBib = {'TR': []}
     
@@ -116,11 +116,11 @@ def extractFiles(fileNameString, path, header=88, Cwl = 1, Ctr = 8):
                    (k<10000)*(pzf>4)*('0')+
                    (k<100000)*(pzf>5)*('0')
                    )
-        if not os.path.isfile(path+additionalPath+'/'+filename+prozero+str(k)+"."+filetype):
+        if not os.path.isfile(filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype):
             print 'INFO: Finished Extraction at:'
-            print path+additionalPath+'/'+filename+prozero+str(k)+"."+filetype
+            print filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype
             break
-        myfile = open(path+additionalPath+'/'+filename+prozero+str(k)+"."+filetype,'r')
+        myfile = open(filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype,'r')
         
         j=0
         while True:
@@ -144,7 +144,32 @@ def extractFiles(fileNameString, path, header=88, Cwl = 1, Ctr = 8):
             dataBib['TR'].append(partArray)
         
         myfile.close()
-    return dataBib['TR'], waveLength, filename
+    return dataBib['TR'], waveLength, additionalPath, filename, filetype, pzf
+
+def fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
+                  dataSet_raw, dataSet, wavelength_raw, wavelength,
+                  dataSetProperties_raw, dataSetProperties, fileProperties):
+    
+    #copy raw data to working data
+    dataSet[:] = ds[:]
+    wavelength[:] = wl[:]
+    dataSet_raw[:] = ds[:]
+    wavelength_raw[:] = wl[:]
+    #set file properties
+    fileProperties['name'] = filename
+    fileProperties['additionalPath'] = additionalPath
+    fileProperties['type'] = filetype
+    #set dataSet properties raw  and working file
+    dataSetProperties_raw['wl'][0] = wavelength_raw[0]
+    dataSetProperties_raw['wl'][1] = wavelength_raw[-1]
+    dataSetProperties['wl'][0] = wavelength_raw[0]
+    dataSetProperties['wl'][1] = wavelength_raw[-1]
+    dataSetProperties_raw['file'][0] = dataSet_raw[0].getNumber()
+    dataSetProperties_raw['file'][1] = dataSet_raw[-1].getNumber()
+    dataSetProperties['file'][0] = dataSet_raw[0].getNumber()
+    dataSetProperties['file'][1] = dataSet_raw[-1].getNumber()
+    
+    
 
 
 
@@ -250,7 +275,7 @@ def prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties):
 """ Safe Files """
 ####################
 
-def origin_safefile(dataSet, wavelength, dataSetProperties, path):
+def origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
     """
     Creates a .txt File with the header wavelength and the extracted file indices.
     In the wavelength column there are all extracted wavelength.
@@ -258,11 +283,13 @@ def origin_safefile(dataSet, wavelength, dataSetProperties, path):
     @param dataSet: dataset of absorbance values for for every extracted file
     @param wavelength: array of extracted wavelength
     @param dataSetProperties: dictionary with dataSet-changing values
-    @param path: path to the current working directory
+    @param filepath: path to the current working directory
     """
-    if not os.path.exists(path+'/Origin/'):
-        os.mkdir(path+'/Origin/')
-    originfile = open(path+'/Origin/Spectra.txt', 'w')
+    filepath = fileProperties['path']
+    additionalPath = fileProperties['additionalPath']
+    if not os.path.exists(filepath+additionalPath+'/ORIGIN/'):
+        os.mkdir(filepath+additionalPath+'/ORIGIN/')
+    originfile = open(filepath+additionalPath+'/ORIGIN/Spectra.txt', 'w')
     text = 'wavelength'
     safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
                 
@@ -277,24 +304,30 @@ def origin_safefile(dataSet, wavelength, dataSetProperties, path):
         
     originfile.write(text)
     originfile.close()
-    print "INFO: saved to ORIGIN/spectra.txt"
+    print "INFO: saved to "+additionalPath+ "/ORIGIN/spectra.txt"
     print "      wavelength: ("+str(dataSetProperties['wl'][0])+','+str(dataSetProperties['wl'][1])+')'
     print "      files: ("+str(dataSetProperties['file'][0])+','+str(dataSetProperties['file'][1])+')'
+    print "      smooth: "+str(dataSetProperties['smooth'])
+    print "      selector: "+ str(dataSetProperties['selector'])
     
-def Igor_safefile(dataSet, wavelength, dataSetProperties, name, path):
+def Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
     """
     Safes data to IGOR compatible files.
     Each file contains wavelength on first column and TR on second column.
     It considers the file limits, they can be set with
     >> setlimits file [min, max]
     """
+    filepath = fileProperties['path']
+    additionalPath = fileProperties['additionalPath']
+    pzf = fileProperties['pzf']
+    name = fileProperties['name']
+    type = fileProperties['type']
     
-    if not os.path.exists(path+'/IGOR/'):
-        os.mkdir(path+'/IGOR/')
+    if not os.path.exists(filepath+additionalPath+'/IGOR/'):
+        os.mkdir(filepath+additionalPath+'/IGOR/')
         
     safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
         
-    pzf = int(np.ceil(np.log10(dataSetProperties['file'][1])))+1
     for dArray in safedataSet:
         nr = dArray.getNumber()
         prozero = ((nr<10)*(pzf>1)*('0')+
@@ -303,27 +336,29 @@ def Igor_safefile(dataSet, wavelength, dataSetProperties, name, path):
                     (nr<10000)*(pzf>4)*('0')+
                     (nr<100000)*(pzf>5)*('0')
                     )
-        newfile = open(path+'/IGOR/'+name+"_"+prozero+str(nr)+"_IGOR.txt", 'w')
+        newfile = open(filepath+additionalPath+'/IGOR/'+name+"_"+prozero+str(nr)+"_IGOR."+type, 'w')
         newfile.write('wavelength TR\n')
         for j, wl in enumerate(safewavelength):
             newfile.write(str(wl)+' '+str(dArray[j])+'\n')
         newfile.close()
     
-    print "INFO: saved to IGOR/NAME_IGOR.txt"
+    print "INFO: saved to "+additionalPath+"/IGOR/NAME_IGOR.txt"
     print "      wavelength: ("+str(dataSetProperties['wl'][0])+','+str(dataSetProperties['wl'][1])+')'
     print "      files: ("+str(dataSetProperties['file'][0])+','+str(dataSetProperties['file'][1])+')'
+    print "      smooth: "+str(dataSetProperties['smooth'])
+    print "      selector: "+ str(dataSetProperties['selector'])
 
 
 """ Visualisation """
 #####################
-def plot2d(dataSet, wavelength, plotProperties, dataSetProperties):
+def plot2d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
     
     safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
     
     fig, ax = plt.subplots()
-
+    
     cax = ax.imshow(safedataSet)
-    ax.set_title(plotProperties['name'])
+    ax.set_title(fileProperties['name'])
     ax.set_xlabel(plotProperties['2d_axinfo'][0])
     ax.set_ylabel(plotProperties['2d_axinfo'][1])
     
@@ -333,20 +368,24 @@ def plot2d(dataSet, wavelength, plotProperties, dataSetProperties):
 
     plt.show()
     
-def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties):
+def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
     safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
-    for dArray in safedataSet:
-        plt.plot(safewavelength, dArray, color=np.random.rand(3,1), label=dArray.getFileName())
+    mycm = plt.get_cmap('nipy_spectral')
+    N = float(len(safedataSet))
+    for i, dArray in enumerate(safedataSet):
+        plt.plot(safewavelength, dArray, color=mycm(i/N), label=dArray.getFileName())
     plt.xlabel(plotProperties['n_axinfo'][0])
     plt.ylabel(plotProperties['n_axinfo'][1])
-    plt.title(plotProperties['name'])
+    plt.title(fileProperties['name'])
     plt.legend()
     plt.show()
 
-def plot3d(dataSet, wavelength, plotProperties, dataSetProperties):
+def plot3d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
     safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
     X = []
+    #func = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
     for dArray in safedataSet:
+        #X.append(func(dArray))
         X.append(dArray.getNumber())
     X = np.array(X)
     Y = np.array(safewavelength)
@@ -358,8 +397,10 @@ def plot3d(dataSet, wavelength, plotProperties, dataSetProperties):
     ax.set_xlabel(plotProperties['3d_axinfo'][0])
     ax.set_ylabel(plotProperties['3d_axinfo'][1])
     ax.set_zlabel(plotProperties['3d_axinfo'][2])
-    ax.set_title(plotProperties['name'])
-    ax.plot_surface(X, Y, Z, rstride = 5, cstride = 5, cmap=plt.get_cmap('nipy_spectral'), linewidth=0, antialiased=True)
+    ax.set_title(fileProperties['name'])
+    ax.plot_surface(X, Y, Z, rstride = plotProperties['3d_precision'][0], cstride = plotProperties['3d_precision'][1],
+                    cmap=plt.get_cmap('nipy_spectral'), linewidth=0, antialiased=True
+                    )
     plt.show()
 
 
@@ -380,7 +421,7 @@ def getValuesFromStringArray(strArray):
 
 def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
                    dataSetProperties_raw, dataSetProperties,
-                   plotProperties, fileNameProperties, path):
+                   plotProperties, fileNameProperties, fileProperties):
     
     
     if inputArray == ['']:
@@ -403,11 +444,11 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             print "ERROR: No valid plot object. [2d/3d/n]"
             return False
         elif inputArray[1] == '2d':
-            plot2d(dataSet, wavelength, plotProperties, dataSetProperties)
+            plot2d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
         elif inputArray[1] == '3d':
-            plot3d(dataSet, wavelength, plotProperties, dataSetProperties)
+            plot3d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
         elif inputArray[1] == 'n':
-            multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties)
+            multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
         else:
             print "ERROR: No valid plot object. [2d/3d/n]"
             
@@ -431,26 +472,14 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
         if len(inputArray) == 1:
             print 'ERROR: please enter a file name. Example: load test001.txt'
             return False
-        ds, wl, filename = extractFiles(inputArray[1], path)
+        ds, wl, additionalPath, filename, filetype, pzf = extractFiles(inputArray[1], fileProperties)
         if ds == [] or wl == []:
             print 'ERROR: data could not be loaded. Got path and filename correct?'
             return False
-        #copy raw data to working data
-        dataSet[:] = ds[:]
-        wavelength[:] = wl[:]
-        dataSet_raw[:] = ds[:]
-        wavelength_raw[:] = wl[:]
-        #set file name for plot properties
-        plotProperties['name'] = filename
-        #set dataSet properties raw  and working file
-        dataSetProperties_raw['wl'][0] = wavelength_raw[0]
-        dataSetProperties_raw['wl'][1] = wavelength_raw[-1]
-        dataSetProperties['wl'][0] = wavelength_raw[0]
-        dataSetProperties['wl'][1] = wavelength_raw[-1]
-        dataSetProperties_raw['file'][0] = dataSet_raw[0].getNumber()
-        dataSetProperties_raw['file'][1] = dataSet_raw[-1].getNumber()
-        dataSetProperties['file'][0] = dataSet_raw[0].getNumber()
-        dataSetProperties['file'][1] = dataSet_raw[-1].getNumber()
+        fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
+                      dataSet_raw, dataSet, wavelength_raw, wavelength,
+                      dataSetProperties_raw, dataSetProperties, fileProperties
+                      )
         
         
     elif inputArray[0] == 'show':
@@ -465,9 +494,9 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             print 'ERROR: which format shall be saved? [origin/igor]'
             return False
         if inputArray[1] == 'igor':
-            Igor_safefile(dataSet, wavelength, dataSetProperties, plotProperties['name'], path)
+            Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties)
         elif inputArray[1] == 'origin':
-            origin_safefile(dataSet, wavelength, dataSetProperties, path)
+            origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties)
         else:
             print 'ERROR: No valid safe format. Try [origin/igor]'
             return False
@@ -500,6 +529,19 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             return False
         smoothCommand(inputArray[1], dataSet, dataSet_raw, wavelength, dataSetProperties)
     
+    elif inputArray[0] == '3d':
+        if inputArray[1] == 'precision':
+            try:
+                x, y = getValuesFromStringArray(inputArray[2])
+                x = int(x)
+                y = int(y)
+                plotProperties['3d_precision'] = [x,y]
+            except:
+                print "ERROR: could not read Integer Values. Example: (4,10)"
+                return False
+        else:
+            print "ERROR: no valid format. Try '3d precision (x,y)'."
+            return False
     
     else:
         print "ERROR: No valid command. Try 'help' for list of commands" 
@@ -512,6 +554,9 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
 def helpCommand():
     print '################################################'
     print "UVvisReader commands"
+    print ' '
+    print "3d precision (x,y)"
+    print "** Set precision of 3d plot for x/y axis **"
     print ' '
     print "axis [2d/3d/n] [x/y/z] VALUE"
     print "** Change axis description **"
@@ -653,13 +698,17 @@ def showCommands(inputArray):
         print dataSetProperties
     elif inputArray[1] == 'dataSetProperties_raw':
         print dataSetProperties_raw
+    elif inputArray[1] == 'fileNameProperties':
+        print fileNameProperties
+    elif inputArray[1] == 'fileProperties':
+        print fileProperties
     else:
         print '######################################'
         print 'Invalid value to be shown. Values are:'
         print 'dataSet, dataSet_raw'
         print 'wavelength, wavelength_raw'
         print 'dataSetProperties, dataSetProperties_raw'
-        print 'plotProperties'
+        print 'plotProperties, fileNameProperties'
         print '######################################'
         print ' '
     
@@ -685,8 +734,6 @@ def fileNameCommand(inputArray, dataSet, fileNameProperties):
 ##################################
 #########     CODE     ###########
 ##################################  
-
-path = os.getcwd()
  
 dataSet = []
 dataSet_raw = []
@@ -696,9 +743,11 @@ dataSetProperties = {'wl': [None, None], 'file': [None, None], 'selector':1, 'sm
 dataSetProperties_raw = {'wl': [None, None], 'file': [None, None], 'selector':1, 'smooth':1}
 plotProperties = {'name':'',
                   'n_axinfo': ['wavelength (nm)', 'Transmission/Reflection (a.u.)'],
-                  '2d_axinfo': ['file number', 'wavelength (nm)', 'Transmission/Reflection (a.u.)'],
-                  '3d_axinfo': ['file number', 'wavelength (nm)', 'Transmission/Reflection (a.u.)']
+                  '2d_axinfo': ['wavelength (nm)', 'file number', 'Transmission/Reflection (a.u.)'],
+                  '3d_axinfo': ['file number', 'wavelength (nm)', 'Transmission/Reflection (a.u.)'],
+                  '3d_precision': [10,10]
                   }
+fileProperties = {'path': os.getcwd(), 'additionalPath': '', 'name': '', 'pzf': 0, 'type': '', 'safefile':''}
 fileNameProperties = {'factor':1, 'offset':0, 'unit': ''}
 
 print "################ UVvisReader ###################"
@@ -714,6 +763,6 @@ while myexit != True:
                             dataSet = dataSet, wavelength=wavelength,
                             dataSetProperties = dataSetProperties, dataSetProperties_raw = dataSetProperties_raw,
                             plotProperties = plotProperties, fileNameProperties =fileNameProperties,
-                            path = path
+                            fileProperties = fileProperties
                             )
 
