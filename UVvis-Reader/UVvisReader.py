@@ -1,8 +1,8 @@
 '''
 Created on 14.09.2016
 
-@author: Jannik & Matthias Schwartzkopf
-@version: 0.2 beta
+@author: Jannik Woehnert
+@version: 0.4 beta
 '''
 import os
 
@@ -79,16 +79,21 @@ def extractFileName(fileNameString):
             int(chr)
             numberlen -= 1
         except:
-            break
-           
+            break   
     while True:
+        if numberlen == len(nameList):
+            numberlen = None
+            break
         if nameList[numberlen] == '0':
             break
         else:
             numberlen +=1
-            
-    filenumber = ''.join(nameList[numberlen:])
-    filename = ''.join(nameList[:numberlen])
+    if numberlen == None:
+        filenumber = ''
+        filename = ''.join(nameList)  
+    else:   
+        filenumber = ''.join(nameList[numberlen:])
+        filename = ''.join(nameList[:numberlen])
     filetype = nameAndType[-1]
     if len(pathArray) == 1:
         additionalPath = ''
@@ -99,14 +104,26 @@ def extractFileName(fileNameString):
 
 
 
-def extractFiles(fileNameString, filepath, header=88, Cwl = 1, Ctr = 8):
+def extractFiles(fileNameString, filepath, start = 1, end = None, header=88, Cwl = 1, Ctr = 8):
+    """
+    Multifunctional file handling method. Adaptable to different UVvis safefiles.
+    @param filenamestring: the path to the UVvis files fromthe view of UVvisReader
+    @param filepath: gloabal path of the UVvisReader
+    @param start: which file to import first. default 1.
+    @param end: last file to import. default None.
+    @param header: How many lines in file to skip before data. default 88.
+    @param Cwl: column of wavelength. default 1.
+    @param Ctr: column of Transmission/Reflection. default 8.
+    @return:  dataArray, wavelength array, path from UVvisReader to files,
+    @return:  raw filename, filetype, number of digits in filename
+    """
     waveLength = []
     dataBib = {'TR': []}
     
     additionalPath, filename, filenumber, filetype = extractFileName(fileNameString)
-    pzf = len(filenumber)   #prozero factor
+    pzf = len(filenumber)   #prozero factor                      
     
-    k = 1
+    k = start
     while True:
         partArray = dataArray()
         partArray.setNumber(k)
@@ -116,28 +133,15 @@ def extractFiles(fileNameString, filepath, header=88, Cwl = 1, Ctr = 8):
                    (k<10000)*(pzf>4)*('0')+
                    (k<100000)*(pzf>5)*('0')
                    )
-        if not os.path.isfile(filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype):
+        if (not os.path.isfile(filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype)
+            or ( end != None and k == end+1)):
             print 'INFO: Finished Extraction at:'
-            print filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype
+            print filepath+additionalPath+'/'+filename+prozero+str(k-1)+"."+filetype
             break
         myfile = open(filepath+additionalPath+'/'+filename+prozero+str(k)+"."+filetype,'r')
         
-        j=0
-        while True:
-            line = myfile.readline()
-            if (j > header):
-                if line == '':
-                    break
-                newline = line.split(';')
-                for i, element in enumerate(newline):
-                    element2 = element.replace(',','.')
-                    newline[i] = element2.replace('   ','0')
-                if newline[Cwl] != '0':
-                    if k == 1:
-                        waveLength.append(float(newline[Cwl]))
-                    partArray.append(float(newline[Ctr]))
-    
-            j+=1
+        waveLength, partArray = extraction(partArray, waveLength, myfile, k, start, header, Cwl, Ctr)
+        
         k+=1
         
         if partArray.boolZeroMeasure() == False:
@@ -145,6 +149,36 @@ def extractFiles(fileNameString, filepath, header=88, Cwl = 1, Ctr = 8):
         
         myfile.close()
     return dataBib['TR'], waveLength, additionalPath, filename, filetype, pzf
+
+def extraction(partArray, waveLength, myfile, k, start, header, Cwl, Ctr):
+    """
+    Help function for extract files
+    @param partArray: dataArray with TR values
+    @param wavelength: wavelength Array
+    @param myfile: stream to data file
+    @param k: file number of UVvis data
+    @param start: first file number
+    @param header: header lines in data file
+    @param Cwl, Ctr: column lines of wavelength and TR in data file
+    @return: filled wavelength and dataArray
+    """
+    j=0
+    while True:
+        line = myfile.readline()
+        if (j > header):
+            if line == '':
+                break
+            newline = line.split(';')
+            for i, element in enumerate(newline):
+                element2 = element.replace(',','.')
+                newline[i] = element2.replace('   ','0')
+            if newline[Cwl] != '0':
+                if k == start:
+                    waveLength.append(float(newline[Cwl]))
+                partArray.append(float(newline[Ctr]))
+    
+        j+=1
+    return waveLength, partArray
 
 def fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
                   dataSet_raw, dataSet, wavelength_raw, wavelength,
@@ -170,13 +204,24 @@ def fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
     dataSetProperties['file'][1] = dataSet_raw[-1].getNumber()
     
     
-
+def extractSubstrat(fileNameString, filepath):
+    additionalPath, filename, filenumber, filetype = extractFileName(fileNameString)
+    completefilepath = filepath+additionalPath+'/'+filename+filenumber+"."+filetype
+    if os.path.isfile(completefilepath):  
+        myfile = open(completefilepath, 'r')
+        wavelength, partArray = extraction([], [], myfile, 0, 88, 1, 8)
+        print "INFO: extracted substrate at:"
+        print completefilepath
+        return partArray
+    else:
+        print "ERROR: substrate file not found."
+    
 
 
 """ Handle Data"""
 #######################################################################
 
-def smooth(y, box_pts):
+def smooth(dArray, box_pts):
     """
     Smoothes data with numpy.convole package
     @param y: data set
@@ -184,38 +229,12 @@ def smooth(y, box_pts):
     @return: y_smooth: smoothed data set
     """
     box = np.ones(box_pts)/box_pts
-    y_smooth = np.convolve(y, box, mode='valid')
+    y_smooth = np.convolve(dArray, box, mode='valid')
     return y_smooth
 
-def smooth_files(dataSet, wavelength, smoo):
-    """
-    convoles a wavelength and absorbance
-    @param dataSet: Absorbance dataset
-    @param wavelength: measured wavelength data
-    @param smoo: number of box points for smoothing
-    @return: dataSetneo, wavelengthneo: smoothed datasets
-    """
+
+def wlExtrem(wavelength, dataSetProperties):
     
-    dataSetsmooth = []
-    wavelengthsmooth = smooth(wavelength, smoo)[:]
-    for sdata in dataSet:
-        newdA = dataArray(smooth(sdata, smoo))
-        newdA.setNumber(sdata.getNumber())
-        dataSetsmooth.append(newdA)
-        
-    return dataSetsmooth, wavelengthsmooth
-
-def prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties):
-    """
-    Cut off files, wavelength or skip files.
-    This function provides the choosen dataSet for plotting and saving
-    @param dataSet: list of dataArray objects of the measure
-    @param wavelength: list of loaded wavelength
-    @param dataSetProperties: dictionary with dataSet-changing values
-    @return: prepared dataSet and wavelength with values from dataSetProperties
-    """
-    nameFunc = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
-
     wlMin = dataSetProperties['wl'][0]
     wlMax = dataSetProperties['wl'][1]
     
@@ -235,7 +254,10 @@ def prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties):
         wlMinIndex = 0
         wlMaxIndex = -1
         print 'ERROR: could not set wavelength cutoff. wavelength will not be cut off.'
-    
+        
+    return wlMinIndex, wlMaxIndex
+
+def fileExtrem(dataSet, dataSetProperties):
     fileMin = dataSetProperties['file'][0]
     fileMax = dataSetProperties['file'][1]
     for i, dArray in enumerate(dataSet):
@@ -255,27 +277,74 @@ def prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties):
         fileMaxIndex = -1
         print 'ERROR: could not set file cutoff to dataSet. dataSet will not be cutted of.'
     
+    return fileMinIndex, fileMaxIndex
+
+def prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties):
+    """
+    Cut off files, wavelength or skip files.
+    This function provides the choosen dataSet for plotting and saving
+    @param dataSet: list of dataArray objects of the measure
+    @param wavelength: list of loaded wavelength
+    @param dataSetProperties: dictionary with dataSet-changing values
+    @return: prepared dataSet and wavelength with values from dataSetProperties
+    """
+    nameFunc = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
+
+    #extract extrema of wavelength and file number
+    wlMinIndex, wlMaxIndex =  wlExtrem(wavelength, dataSetProperties)
+    fileMinIndex, fileMaxIndex = fileExtrem(dataSet, dataSetProperties)
     slct = dataSetProperties['selector']
+    #cut dataSet
     cutFileArray = dataSet[fileMinIndex:fileMaxIndex:slct]
+    
+    # set smoothed and cutted wavelength
+    preparedwavelength = wavelength[wlMinIndex:wlMaxIndex]
+    preparedwavelength = smooth(preparedwavelength, dataSetProperties['smooth'])
+    
+    #set smoothed, cutted and substrate reduced dataSet
+    
+    if dataSetProperties['substrate']:
+        preparedsubstrate = substrate[wlMinIndex:wlMaxIndex]
     preparedArray = []
     for dArray in cutFileArray:
-        newArray = dataArray(dArray[wlMinIndex:wlMaxIndex])
+        preArray = dArray[wlMinIndex:wlMaxIndex]
+        if dataSetProperties['substrate']:
+            newArray = dataArray(np.array(preArray) * np.array(preparedsubstrate)/100.)
+        else:
+            newArray = preArray
+        newArray = dataArray(smooth(newArray, dataSetProperties['smooth']))   
         newArray.setNumber(dArray.getNumber())
         newArray.setFileName( str(nameFunc(dArray)) + ' ' + fileNameProperties['unit'] )
         preparedArray.append(newArray)
         
-    preparedwavelength = wavelength[wlMinIndex:wlMaxIndex]
     return preparedArray, preparedwavelength
 
 
 
-
+def findExtremum(dataSet, wavelength, fileNameProperties, start, stop, minmax):
+    nameFunc = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
+    exList = []
+    nameList =[]
+    wlMinIndex, wlMaxIndex = wlExtrem(wavelength, {'wl':[start, stop]})
+    for dArray in dataSet:
+        ds = dArray[wlMinIndex:wlMaxIndex]
+        wl = wavelength[wlMinIndex:wlMaxIndex]
+        if minmax == 'min':
+            i = ds.index(min(ds))
+        elif minmax == 'max':
+            i = ds.index(max(ds))
+        exList.append(wl[i])
+        nameList.append(nameFunc(dArray))
+        
+    return nameList, exList
+        
+        
 
 
 """ Safe Files """
 ####################
 
-def origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
+def origin_safefile(dataSet, wavelength, substrate, dataSetProperties, fileProperties):
     """
     Creates a .txt File with the header wavelength and the extracted file indices.
     In the wavelength column there are all extracted wavelength.
@@ -291,7 +360,7 @@ def origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
         os.mkdir(filepath+additionalPath+'/ORIGIN/')
     originfile = open(filepath+additionalPath+'/ORIGIN/Spectra.txt', 'w')
     text = 'wavelength'
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
                 
     for dArray in safedataSet:
         text += ' '+dArray.getFileName()
@@ -309,8 +378,9 @@ def origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
     print "      files: ("+str(dataSetProperties['file'][0])+','+str(dataSetProperties['file'][1])+')'
     print "      smooth: "+str(dataSetProperties['smooth'])
     print "      selector: "+ str(dataSetProperties['selector'])
+    print "      substrate substracted: "+ ("Yes" if dataSetProperties['substrate'] else "No")
     
-def Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
+def Igor_safefile(dataSet, wavelength, substrate, dataSetProperties, fileProperties):
     """
     Safes data to IGOR compatible files.
     Each file contains wavelength on first column and TR on second column.
@@ -326,7 +396,7 @@ def Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
     if not os.path.exists(filepath+additionalPath+'/IGOR/'):
         os.mkdir(filepath+additionalPath+'/IGOR/')
         
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
         
     for dArray in safedataSet:
         nr = dArray.getNumber()
@@ -347,13 +417,30 @@ def Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties):
     print "      files: ("+str(dataSetProperties['file'][0])+','+str(dataSetProperties['file'][1])+')'
     print "      smooth: "+str(dataSetProperties['smooth'])
     print "      selector: "+ str(dataSetProperties['selector'])
+    print "      substrate substracted: "+ ("Yes" if dataSetProperties['substrate'] else "No")
 
+
+def special_safefile(specialData, name, fileProperties):
+    filepath = fileProperties['path']
+    additionalPath = fileProperties['additionalPath']
+    if not os.path.exists(filepath+additionalPath+'/SPECIAL/'):
+        os.mkdir(filepath+additionalPath+'/SPECIAL/')
+    
+    filenameList = specialData[name][0]
+    extremumList = specialData[name][1]
+    print specialData[name][0]
+        
+    myfile = open(filepath+additionalPath+'/SPECIAL/'+name+".txt", 'w')
+    myfile.write('file wavelength\n')
+    for i, filename in enumerate(filenameList):
+        myfile.write(str(filename) + ' ' + str(extremumList[i])+'\n')
+    myfile.close()
 
 """ Visualisation """
 #####################
-def plot2d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
+def plot2d(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties):
     
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
     
     fig, ax = plt.subplots()
     
@@ -368,8 +455,8 @@ def plot2d(dataSet, wavelength, plotProperties, dataSetProperties, filePropertie
 
     plt.show()
     
-def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
+def multipleLines2dPlot(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties):
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
     mycm = plt.get_cmap('nipy_spectral')
     N = float(len(safedataSet))
     for i, dArray in enumerate(safedataSet):
@@ -380,8 +467,8 @@ def multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties, 
     plt.legend()
     plt.show()
 
-def plot3d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties):
-    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, dataSetProperties, fileNameProperties)
+def plot3d(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties):
+    safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
     X = []
     #func = lambda dArray: fileNameProperties['factor']*dArray.getNumber() + fileNameProperties['offset']
     for dArray in safedataSet:
@@ -402,6 +489,15 @@ def plot3d(dataSet, wavelength, plotProperties, dataSetProperties, filePropertie
                     cmap=plt.get_cmap('nipy_spectral'), linewidth=0, antialiased=True
                     )
     plt.show()
+    
+def plotSpecial(name, specialData):
+    nameList = specialData[name][0]
+    exList = specialData[name][1]
+    plt.plot(nameList, exList, color='r')
+    plt.xlabel('filename')
+    plt.ylabel("wavelength [nm]")
+    plt.title("Special plot: "+name)
+    plt.show()
 
 
 """ Command Line """
@@ -420,7 +516,7 @@ def getValuesFromStringArray(strArray):
     return elements
 
 def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
-                   dataSetProperties_raw, dataSetProperties,
+                   dataSetProperties_raw, substrate, dataSetProperties,
                    plotProperties, fileNameProperties, fileProperties):
     
     
@@ -444,11 +540,19 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             print "ERROR: No valid plot object. [2d/3d/n]"
             return False
         elif inputArray[1] == '2d':
-            plot2d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
+            plot2d(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties)
         elif inputArray[1] == '3d':
-            plot3d(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
+            plot3d(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties)
         elif inputArray[1] == 'n':
-            multipleLines2dPlot(dataSet, wavelength, plotProperties, dataSetProperties, fileProperties)
+            multipleLines2dPlot(dataSet, wavelength, substrate, plotProperties, dataSetProperties, fileProperties)
+        elif inputArray[1] == 'special':
+            if len(inputArray) == 3:
+                if inputArray[2] in specialData:
+                    plotSpecial(inputArray[2], specialData)
+                else:
+                    print "ERROR: special data not found."
+            else:
+                print "ERROR: invalid format. Example: 'plot special firstmin'."
         else:
             print "ERROR: No valid plot object. [2d/3d/n]"
             
@@ -469,17 +573,9 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
         
         
     elif inputArray[0] == 'load':
-        if len(inputArray) == 1:
-            print 'ERROR: please enter a file name. Example: load test001.txt'
-            return False
-        ds, wl, additionalPath, filename, filetype, pzf = extractFiles(inputArray[1], fileProperties)
-        if ds == [] or wl == []:
-            print 'ERROR: data could not be loaded. Got path and filename correct?'
-            return False
-        fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
-                      dataSet_raw, dataSet, wavelength_raw, wavelength,
-                      dataSetProperties_raw, dataSetProperties, fileProperties
-                      )
+        loadCommand(inputArray, dataSet_raw, dataSet,
+                wavelength_raw, wavelength, dataSetProperties_raw,
+                dataSetProperties, fileProperties)
         
         
     elif inputArray[0] == 'show':
@@ -494,9 +590,14 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             print 'ERROR: which format shall be saved? [origin/igor]'
             return False
         if inputArray[1] == 'igor':
-            Igor_safefile(dataSet, wavelength, dataSetProperties, fileProperties)
+            Igor_safefile(dataSet, wavelength, substrate, dataSetProperties, fileProperties)
         elif inputArray[1] == 'origin':
-            origin_safefile(dataSet, wavelength, dataSetProperties, fileProperties)
+            origin_safefile(dataSet, wavelength, substrate, dataSetProperties, fileProperties)
+        elif inputArray[1] == 'special':
+            if (len(inputArray) >= 3 and inputArray[2] in specialData):
+                special_safefile(specialData, inputArray[2], fileProperties)
+            else:
+                print "ERROR: special plot format invalid or data not found."
         else:
             print 'ERROR: No valid safe format. Try [origin/igor]'
             return False
@@ -527,7 +628,7 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
         if len(inputArray) == 1:
             print 'ERROR: enter smoothing factor.'
             return False
-        smoothCommand(inputArray[1], dataSet, dataSet_raw, wavelength, dataSetProperties)
+        smoothCommand(inputArray[1], dataSetProperties)
     
     elif inputArray[0] == '3d':
         if inputArray[1] == 'precision':
@@ -543,6 +644,22 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
             print "ERROR: no valid format. Try '3d precision (x,y)'."
             return False
     
+    elif inputArray[0] == 'substrate':
+        if len(inputArray) != 2:
+            print "ERROR: wrong syntax. Example: 'substrate 1'"
+        if inputArray[1] == '0':
+            dataSetProperties['substrate'] = False
+        elif inputArray[1] == '1':
+            dataSetProperties['substrate'] = True
+        else:
+            print "ERROR: substrate value either '0' or '1'."
+            
+    elif inputArray[0] == 'find':
+        if len(inputArray) != 4:
+            print "ERROR: wrong format. Example: 'find min (250,350) firstmin'."
+            return False
+        findCommand(inputArray, dataSet, wavelength, substrate, dataSetProperties, fileNameProperties)
+    
     else:
         print "ERROR: No valid command. Try 'help' for list of commands" 
             
@@ -550,6 +667,27 @@ def handleCommands(inputArray, dataSet_raw, wavelength_raw, dataSet, wavelength,
 
 """ Commands """
 ######################################################
+
+def loadCommand(inputArray, dataSet_raw, dataSet,
+                wavelength_raw, wavelength, dataSetProperties_raw,
+                dataSetProperties, fileProperties):
+    if len(inputArray) < 3:
+        print 'ERROR: please enter a file name and specfify what to load.'
+        print '       Example: load data test001.txt'
+        return False
+    if inputArray[1] == 'substrate':
+        sb = extractSubstrat(inputArray[2], fileProperties['path'])
+        substrate[:] = sb[:]
+        dataSetProperties['substrate'] = True
+    elif inputArray[1] == 'data':
+        ds, wl, additionalPath, filename, filetype, pzf = extractFiles(inputArray[2], fileProperties['path'])
+        if ds == [] or wl == []:
+            print 'ERROR: data could not be loaded. Got path and filename correct?'
+            return False
+        fillVariables(ds, wl, additionalPath, filename, filetype, pzf,
+                      dataSet_raw, dataSet, wavelength_raw, wavelength,
+                      dataSetProperties_raw, dataSetProperties, fileProperties
+                      )
 
 def helpCommand():
     print '################################################'
@@ -575,15 +713,17 @@ def helpCommand():
     print "help"
     print "** this list **"
     print ' '
-    print "load FILENAME.txt"
-    print "** loads files with same filename, beginning with 1,"
-    print "   ending with last found filenumber **"
+    print "load [data/substrate] FILENAME.txt"
+    print "** loads UVvis data, that means all files it can found in numerical order,"
+    print "   as well as the substrate measure to gain the real UVvis values. **"
     print ' '
-    print "plot [2d/3d/n]"
-    print "** plot different figures. Example: UVvisReader>>plot 3d **"
+    print "plot [2d/3d/n/special] {special:NAME}"
+    print "** plot different figures. Example: 'plot 3d'"
+    print "   pLot special data (find min/max). Example: 'plot special firstmin' **"
     print ' '
-    print "safe [origin/igor]"
-    print "** safe modified dataSet as origin/igor importable. **"
+    print "safe [origin/igor/special] {special:NAME}"
+    print "** safe modified dataSet as origin/igor importable."
+    print "   safe special data. Example: 'safe special firstmin' **"
     print ' '
     print 'selector VALUE'
     print "** Set how many files shall be skipped **"
@@ -636,15 +776,11 @@ def cutoffFilenumbersCommand(min_max, dataSet_raw, dataSet, dataSetProperties_ra
         dataSetProperties['file'][0] = mymin
         
         
-def smoothCommand(smoo, dataSet, dataSet_raw, wavelength, dataSetProperties):
+def smoothCommand(smoo, dataSetProperties):
     smoo = int(smoo)
     if smoo <=1:
-        dataSet[:] = dataSet_raw[:]
         dataSetProperties['smooth'] = 1
     else:
-        ds, wl = smooth_files(dataSet_raw, wavelength_raw, smoo)
-        dataSet[:] = ds[:]
-        wavelength[:] = wl[:]
         dataSetProperties['smooth'] = smoo
         
         
@@ -702,6 +838,17 @@ def showCommands(inputArray):
         print fileNameProperties
     elif inputArray[1] == 'fileProperties':
         print fileProperties
+    elif inputArray[1] == 'substrate':
+        if len(inputArray) == 2:
+            print substrate
+        elif inputArray[2] == 'len':
+            print len(substrate)
+    elif inputArray[1] == 'specialData':
+        if len(inputArray) == 2:
+            print specialData.keys()
+        else:
+            if inputArray[2] in specialData:
+                print specialData[inputArray[2]]
     else:
         print '######################################'
         print 'Invalid value to be shown. Values are:'
@@ -709,8 +856,8 @@ def showCommands(inputArray):
         print 'wavelength, wavelength_raw'
         print 'dataSetProperties, dataSetProperties_raw'
         print 'plotProperties, fileNameProperties'
+        print 'substrate, specialData'
         print '######################################'
-        print ' '
     
     
 def fileNameCommand(inputArray, dataSet, fileNameProperties):
@@ -729,7 +876,22 @@ def fileNameCommand(inputArray, dataSet, fileNameProperties):
             return False
             
     
-    
+
+def findCommand(inputArray, dataSet, wavelength, substrate, dataSetProperties, fileNameProperties):
+    if inputArray[1] in ['min', 'max']:
+        safedataSet, safewavelength = prepareDataSet(dataSet, wavelength, substrate,
+                                                     dataSetProperties, fileNameProperties)
+        try:
+            minwl, maxwl = getValuesFromStringArray(inputArray[2])
+            minwl = float(minwl)
+            maxwl = float(maxwl)
+        except:
+            print "ERROR: wavelength area not float"
+            return False
+        nameList, exList = findExtremum(safedataSet, safewavelength, fileNameProperties, minwl, maxwl, inputArray[1])
+        specialData[inputArray[3]] = [nameList, exList]
+            
+            
     
 ##################################
 #########     CODE     ###########
@@ -739,8 +901,10 @@ dataSet = []
 dataSet_raw = []
 wavelength = []
 wavelength_raw = []
-dataSetProperties = {'wl': [None, None], 'file': [None, None], 'selector':1, 'smooth':1}
-dataSetProperties_raw = {'wl': [None, None], 'file': [None, None], 'selector':1, 'smooth':1}
+specialData = {}
+substrate = []
+dataSetProperties = {'wl': [None, None], 'file': [None, None], 'selector':1, 'smooth':1, 'substrate':False}
+dataSetProperties_raw = {'wl': [None, None], 'file': [None, None], 'selector':1, 'smooth':1, 'substrate': False}
 plotProperties = {'name':'',
                   'n_axinfo': ['wavelength (nm)', 'Transmission/Reflection (a.u.)'],
                   '2d_axinfo': ['wavelength (nm)', 'file number', 'Transmission/Reflection (a.u.)'],
@@ -751,8 +915,9 @@ fileProperties = {'path': os.getcwd(), 'additionalPath': '', 'name': '', 'pzf': 
 fileNameProperties = {'factor':1, 'offset':0, 'unit': ''}
 
 print "################ UVvisReader ###################"
-print "# by Jannik Woehnert and Matthias Schwartzkopf #"
-print "# Version 0.2 beta                             #"
+print "# by Jannik Woehnert                           #"
+print "# thanks to Matthias Schwartzkopf, Marc Gensch #"
+print "# Version 0.4 beta                             #"
 print "# try 'help' for more information              #"
 print "################################################" 
 myexit = False
@@ -762,7 +927,7 @@ while myexit != True:
                             dataSet_raw = dataSet_raw, wavelength_raw = wavelength_raw,
                             dataSet = dataSet, wavelength=wavelength,
                             dataSetProperties = dataSetProperties, dataSetProperties_raw = dataSetProperties_raw,
-                            plotProperties = plotProperties, fileNameProperties =fileNameProperties,
-                            fileProperties = fileProperties
+                            substrate = substrate, plotProperties = plotProperties,
+                            fileNameProperties =fileNameProperties, fileProperties = fileProperties
                             )
 
